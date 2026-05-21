@@ -448,7 +448,7 @@ async def my_hours(message: Message, state: FSMContext):
     await message.answer(
         f"📊 *{emp_staff['name']}* — {period['name']}\n\n"
         f"*Последние отметки:*\n{detail}\n\n"
-        f"⏱ Итого: *{round(total_hours*100)/100} ч*\n"
+        f"⏱ Итого: *{round(total_hours*100)/100} ч*" + "\n"
         f"💰 Заработано: *{earned:,}₽*\n"
         f"{adv_line}{left_line}",
         parse_mode="Markdown"
