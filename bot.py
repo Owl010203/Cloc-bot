@@ -451,7 +451,6 @@ async def my_hours(message: Message, state: FSMContext):
         f"⏱ Итого: *{round(total_hours*100)/100} ч*\n"
         f"💰 Заработано: *{earned:,}₽*\n"
         f"{adv_line}{left_line}",
-        f"{adv_line}{left_line}",
         parse_mode="Markdown"
     )
 @dp.message(F.text == "❓ Помощь")
