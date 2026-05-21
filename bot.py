@@ -4,6 +4,7 @@ import os
 import logging
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
+from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
     Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton,
@@ -442,16 +443,17 @@ async def my_hours(message: Message, state: FSMContext):
     if len(lines) > 7:
         detail = f"  ...ещё {len(lines)-7} дней раньше\n" + detail
 
+    adv_line = f"📤 Аванс: {int(adv)}₽\n" if adv else ""
+    left_line = f"✅ К выдаче: {left}₽" if left > 0 else "✅ Полностью выплачено"
     await message.answer(
         f"📊 *{emp_staff['name']}* — {period['name']}\n\n"
         f"*Последние отметки:*\n{detail}\n\n"
         f"⏱ Итого: *{round(total_hours*100)/100} ч*\n"
         f"💰 Заработано: *{earned:,}₽*\n"
-        f"{('📤 Аванс: ' + str(int(adv)) + '₽\n') if adv else ''}"
-        f"{'✅ К выдаче: ' + str(left) + '₽' if left > 0 else '✅ Полностью выплачено'}",
+        f"{adv_line}{left_line}",
+        f"{adv_line}{left_line}",
         parse_mode="Markdown"
     )
-
 @dp.message(F.text == "❓ Помощь")
 async def help_cmd(message: Message):
     await message.answer(
@@ -961,6 +963,7 @@ async def main():
         return
     if not ADMIN_ID:
         logger.warning("ADMIN_ID не задан!")
+    await start_web()
     asyncio.create_task(daily_jobs())
     logger.info("Бот запущен (авторассылка и автопериоды в 7:00 МСК)...")
     await dp.start_polling(bot)
