@@ -18,21 +18,20 @@ from aiogram.fsm.storage.memory import MemoryStorage
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = getenv("BOT_TOKEN", "8966689258:AAEeaN0fuv7IsCI9KKn2znZULNx3WmvE_JQ")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
-DATA_FILE = "data.json"
+BOT_TOKEN = os.getenv("BOT_TOKEN") or "8966689258:AAEeaN0fuv7IsCI9KKn2znZULNx3WmvE_JQ"
+ADMIN_ID = int(os.getenv("ADMIN_ID") or "1400121041")
+DATA_FILE = os.getenv("DATA_DIR", "/app/data") + "/data.json"
 TZ = ZoneInfo("Europe/Moscow")
 
-# ─────────────────────────────────────────────
-# БАЗА ДАННЫХ
-# ─────────────────────────────────────────────
 def load_db():
+    os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return {"periods": [], "staff": []}
 
 def save_db(db):
+    os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(db, f, ensure_ascii=False, indent=2)
 
@@ -108,43 +107,25 @@ def log_message(db, tg_id: int, name: str, action: str, detail: str):
     if len(db["message_log"]) > 2000:
         db["message_log"] = db["message_log"][-2000:]
 
-# ─────────────────────────────────────────────
-# ЛОГИКА ПЕРИОДОВ
-# Периоды: 6–20 и 21–5 следующего месяца
-# ─────────────────────────────────────────────
 def calc_next_period_dates(after_date: str = None):
-    """
-    Вычисляет даты следующего периода после given date.
-    Периоды: 6-е – 20-е и 21-е – 5-е следующего месяца.
-    """
     if after_date:
         ref = datetime.strptime(after_date, "%Y-%m-%d").date()
     else:
         ref = now_msk().date()
-
     y, m = ref.year, ref.month
-
-    # Определяем какой следующий период
     if ref.day <= 5:
-        # Сейчас начало месяца (1–5), следующий: 6–20 этого месяца
         start = date(y, m, 6)
         end = date(y, m, 20)
     elif ref.day <= 20:
-        # Сейчас 6–20, следующий: 21–5 следующего месяца
         start = date(y, m, 21)
-        if m == 12:
-            end = date(y + 1, 1, 5)
-        else:
-            end = date(y, m + 1, 5)
+        end = date(y, m + 1, 5) if m < 12 else date(y + 1, 1, 5)
     else:
-        # Сейчас 21–конец месяца, следующий: 6–20 следующего месяца
         if m == 12:
             start = date(y + 1, 1, 6)
             end = date(y + 1, 1, 20)
         else:
             start = date(y, m + 1, 6)
             end = date(y, m + 1, 20)
-
     return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
 
 def period_name_auto(start: str, end: str):
@@ -152,8 +133,7 @@ def period_name_auto(start: str, end: str):
     e = datetime.strptime(end, "%Y-%m-%d").date()
     if s.month == e.month:
         return f"{s.day}–{e.day} {MONTHS[s.month-1]}"
-    else:
-        return f"{s.day} {MONTHS[s.month-1]} – {e.day} {MONTHS[e.month-1]}"
+    return f"{s.day} {MONTHS[s.month-1]} – {e.day} {MONTHS[e.month-1]}"
 
 def create_period_from_dates(db, start: str, end: str, staff_list: list, custom_name: str = None):
     all_dates = get_dates(start, end)
@@ -172,9 +152,6 @@ def create_period_from_dates(db, start: str, end: str, staff_list: list, custom_
     db["periods"].insert(0, new_period)
     return new_period
 
-# ─────────────────────────────────────────────
-# СОСТОЯНИЯ
-# ─────────────────────────────────────────────
 class RegState(StatesGroup):
     waiting_name = State()
 
@@ -195,9 +172,6 @@ class AdminState(StatesGroup):
     new_period_end = State()
     new_period_staff = State()
 
-# ─────────────────────────────────────────────
-# КЛАВИАТУРЫ
-# ─────────────────────────────────────────────
 def main_keyboard():
     return ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="🟢 Пришёл"), KeyboardButton(text="🔴 Ушёл")],
@@ -242,15 +216,9 @@ def date_keyboard(action: str, period):
 def is_admin(user_id: int):
     return user_id == ADMIN_ID
 
-# ─────────────────────────────────────────────
-# BOT + DISPATCHER
-# ─────────────────────────────────────────────
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# ─────────────────────────────────────────────
-# РЕГИСТРАЦИЯ
-# ─────────────────────────────────────────────
 @dp.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     db = load_db()
@@ -259,10 +227,7 @@ async def cmd_start(message: Message, state: FSMContext):
         kb = admin_keyboard() if is_admin(message.from_user.id) else main_keyboard()
         await message.answer(f"👋 С возвращением, *{emp['name']}*!", parse_mode="Markdown", reply_markup=kb)
     else:
-        await message.answer(
-            "👋 Привет! Я бот учёта рабочего времени.\n\nНапиши своё *имя и фамилию*:",
-            parse_mode="Markdown"
-        )
+        await message.answer("👋 Привет! Напиши своё *имя и фамилию*:", parse_mode="Markdown")
         await state.set_state(RegState.waiting_name)
 
 @dp.message(RegState.waiting_name)
@@ -280,12 +245,9 @@ async def reg_name(message: Message, state: FSMContext):
         name = staff_match["name"]
     save_db(db)
     kb = admin_keyboard() if is_admin(message.from_user.id) else main_keyboard()
-    await message.answer(f"✅ Готово! Зарегистрирован как *{name}*. Можешь отмечаться 👇", parse_mode="Markdown", reply_markup=kb)
+    await message.answer(f"✅ Готово! Зарегистрирован как *{name}* 👇", parse_mode="Markdown", reply_markup=kb)
     await state.clear()
 
-# ─────────────────────────────────────────────
-# ПРИХОД / УХОД
-# ─────────────────────────────────────────────
 async def start_checkin_checkout(message: Message, state: FSMContext, action: str):
     db = load_db()
     emp = find_employee_by_tg(db, message.from_user.id)
@@ -372,7 +334,6 @@ async def process_time_entry(message: Message, state: FSMContext, time_str: str,
         await message.answer("❌ Дата не входит в активный период.")
         await state.clear()
         return
-
     emp = find_emp_in_period(period, emp_staff["name"])
     if not emp:
         emp = {
@@ -381,22 +342,17 @@ async def process_time_entry(message: Message, state: FSMContext, time_str: str,
             "adv": 0, "debtPaid": False, "paidOut": 0, "salaryPaid": False, "purchases": []
         }
         period["employees"].append(emp)
-
     if chosen_date not in emp["days"]:
         emp["days"][chosen_date] = {"s": "", "e": ""}
     emp["days"][chosen_date]["s" if is_checkin else "e"] = time_str
-
-    log_message(db, user_id, emp_staff["name"],
-                "Приход" if is_checkin else "Уход",
+    log_message(db, user_id, emp_staff["name"], "Приход" if is_checkin else "Уход",
                 f"{fmt_date(chosen_date)} {time_str}")
     save_db(db)
-
     day = emp["days"][chosen_date]
     hours = calc_hours(day.get("s", ""), day.get("e", ""))
     hours_text = f"\n⏱ Часов за день: *{hours} ч*" if hours > 0 else ""
     retro = "" if chosen_date == today_msk() else f"\n_(задним числом за {fmt_date(chosen_date)})_"
     emoji = "🟢" if is_checkin else "🔴"
-
     await message.answer(
         f"{emoji} *{'Приход' if is_checkin else 'Уход'} отмечен!*\n\n"
         f"👤 {emp_staff['name']}\n📅 {fmt_date(chosen_date)}\n🕐 *{time_str}*"
@@ -405,9 +361,6 @@ async def process_time_entry(message: Message, state: FSMContext, time_str: str,
     )
     await state.clear()
 
-# ─────────────────────────────────────────────
-# МОИ ЧАСЫ
-# ─────────────────────────────────────────────
 @dp.message(F.text == "📊 Мои часы")
 async def my_hours(message: Message, state: FSMContext):
     db = load_db()
@@ -424,7 +377,6 @@ async def my_hours(message: Message, state: FSMContext):
     if not emp:
         await message.answer("ℹ️ Ты ещё не отмечался в текущем периоде.")
         return
-
     total_hours = 0
     lines = []
     for d in period["dates"]:
@@ -435,24 +387,23 @@ async def my_hours(message: Message, state: FSMContext):
         if h > 0:
             total_hours += h
             lines.append(f"  {fmt_date_short(d)}: {day.get('s','—')}–{day.get('e','—')} ({h}ч)")
-
     earned = round(total_hours * emp.get("rate", 0))
     adv = emp.get("adv", 0)
     left = max(0, earned - adv - emp.get("paidOut", 0))
     detail = "\n".join(lines[-7:]) if lines else "  Нет данных"
     if len(lines) > 7:
         detail = f"  ...ещё {len(lines)-7} дней раньше\n" + detail
-
     adv_line = f"📤 Аванс: {int(adv)}₽\n" if adv else ""
     left_line = f"✅ К выдаче: {left}₽" if left > 0 else "✅ Полностью выплачено"
     await message.answer(
         f"📊 *{emp_staff['name']}* — {period['name']}\n\n"
         f"*Последние отметки:*\n{detail}\n\n"
-        f"⏱ Итого: *{round(total_hours*100)/100} ч*" + "\n"
+        f"⏱ Итого: *{round(total_hours*100)/100} ч*\n"
         f"💰 Заработано: *{earned:,}₽*\n"
         f"{adv_line}{left_line}",
         parse_mode="Markdown"
     )
+
 @dp.message(F.text == "❓ Помощь")
 async def help_cmd(message: Message):
     await message.answer(
@@ -464,9 +415,6 @@ async def help_cmd(message: Message):
         parse_mode="Markdown"
     )
 
-# ─────────────────────────────────────────────
-# АДМИН ПАНЕЛЬ
-# ─────────────────────────────────────────────
 @dp.message(F.text == "👑 Админ")
 async def admin_panel(message: Message):
     if not is_admin(message.from_user.id):
@@ -476,23 +424,19 @@ async def admin_panel(message: Message):
     period = get_active_period(db)
     period_info = f"📅 Активный период: *{period['name']}*" if period else "❌ Нет активного периода"
     next_start, next_end = calc_next_period_dates(period["end"] if period else None)
-    next_name = period_name_auto(next_start, next_end)
     await message.answer(
-        f"👑 *Панель администратора*\n\n"
-        f"{period_info}\n"
-        f"👥 Сотрудников: {len(db['staff'])}\n\n"
-        f"_Следующий автопериод: {next_name}_",
+        f"👑 *Панель администратора*\n\n{period_info}\n👥 Сотрудников: {len(db['staff'])}\n\n"
+        f"_Следующий автопериод: {period_name_auto(next_start, next_end)}_",
         parse_mode="Markdown", reply_markup=admin_panel_inline()
     )
 
-# ЭКСПОРТ
 @dp.callback_query(F.data == "admin_export")
 async def admin_export(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
         await callback.answer("⛔ Нет доступа.", show_alert=True)
         return
     db = load_db()
-    filename = f"зарплата_{now_msk().strftime('%Y%m%d_%H%M')}.json"
+    filename = f"/tmp/salary_{now_msk().strftime('%Y%m%d_%H%M')}.json"
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(db, f, ensure_ascii=False, indent=2)
     await callback.message.answer_document(
@@ -509,13 +453,12 @@ async def cmd_export(message: Message):
         await message.answer("⛔ Нет доступа.")
         return
     db = load_db()
-    filename = f"зарплата_{now_msk().strftime('%Y%m%d_%H%M')}.json"
+    filename = f"/tmp/salary_{now_msk().strftime('%Y%m%d_%H%M')}.json"
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(db, f, ensure_ascii=False, indent=2)
     await message.answer_document(FSInputFile(filename), caption="📥 Данные для HTML-приложения.")
     os.remove(filename)
 
-# СПИСОК СОТРУДНИКОВ
 @dp.callback_query(F.data == "admin_staff_list")
 async def admin_staff_list(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
@@ -537,12 +480,11 @@ async def admin_staff_list(callback: CallbackQuery):
     buttons.append([InlineKeyboardButton(text="➕ Добавить сотрудника", callback_data="admin_add_staff")])
     buttons.append([InlineKeyboardButton(text="◀️ Назад", callback_data="admin_back")])
     await callback.message.edit_text(
-        f"👥 *Сотрудники ({len(db['staff'])})* — нажми для сводки или смены ставки:",
+        f"👥 *Сотрудники ({len(db['staff'])})* — нажми для сводки:",
         parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
     )
     await callback.answer()
 
-# КАРТОЧКА СОТРУДНИКА
 @dp.callback_query(F.data.startswith("admin_emp|"))
 async def admin_emp_detail(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
@@ -555,10 +497,8 @@ async def admin_emp_detail(callback: CallbackQuery):
     if not staff:
         await callback.answer("Сотрудник не найден.", show_alert=True)
         return
-
     tg_status = "✅ привязан" if staff.get("telegram_id") else "⚠️ не привязан к Telegram"
     lines = [f"👤 *{name}*", f"💰 Ставка: {staff.get('rate', 300)}₽/ч", f"Telegram: {tg_status}", ""]
-
     if period:
         emp = find_emp_in_period(period, name)
         if emp:
@@ -581,8 +521,6 @@ async def admin_emp_detail(callback: CallbackQuery):
                 lines += worked_days[-10:]
         else:
             lines.append(f"📋 В периоде «{period['name']}» не отмечался.")
-
-    # История отметок
     logs = [l for l in db.get("message_log", []) if l.get("name") == name]
     if logs:
         lines.append("\n📨 *Последние отметки:*")
@@ -590,7 +528,6 @@ async def admin_emp_detail(callback: CallbackQuery):
             lines.append(f"  {l['ts']} — {l['action']}: {l['detail']}")
     else:
         lines.append("\n📨 История отметок пуста.")
-
     await callback.message.edit_text(
         "\n".join(lines), parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -600,7 +537,6 @@ async def admin_emp_detail(callback: CallbackQuery):
     )
     await callback.answer()
 
-# ИЗМЕНЕНИЕ СТАВКИ
 @dp.callback_query(F.data.startswith("admin_change_rate|"))
 async def admin_change_rate_start(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id):
@@ -613,9 +549,7 @@ async def admin_change_rate_start(callback: CallbackQuery, state: FSMContext):
     await state.update_data(change_rate_name=name)
     await state.set_state(AdminState.change_rate_value)
     await callback.message.answer(
-        f"✏️ Изменение ставки для *{name}*\n"
-        f"Текущая ставка: *{current_rate}₽/ч*\n\n"
-        f"Введи новую ставку (₽/час):",
+        f"✏️ Изменение ставки для *{name}*\nТекущая: *{current_rate}₽/ч*\n\nВведи новую ставку:",
         parse_mode="Markdown"
     )
     await callback.answer()
@@ -633,28 +567,18 @@ async def admin_change_rate_value(message: Message, state: FSMContext):
     data = await state.get_data()
     name = data["change_rate_name"]
     db = load_db()
-
-    # Меняем в базе сотрудников
     staff = next((s for s in db["staff"] if s["name"] == name), None)
     if staff:
         staff["rate"] = new_rate
-
-    # Меняем в активном периоде тоже
     period = get_active_period(db)
     if period:
         emp = find_emp_in_period(period, name)
         if emp:
             emp["rate"] = new_rate
-
     save_db(db)
-    await message.answer(
-        f"✅ Ставка *{name}* обновлена: *{new_rate}₽/ч*\n\n"
-        f"_Изменение применено и в текущем периоде._",
-        parse_mode="Markdown"
-    )
+    await message.answer(f"✅ Ставка *{name}* обновлена: *{new_rate}₽/ч*", parse_mode="Markdown")
     await state.clear()
 
-# ИТОГИ ПЕРИОДА
 @dp.callback_query(F.data == "admin_current_period")
 async def admin_current_period(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
@@ -687,20 +611,17 @@ async def admin_current_period(callback: CallbackQuery):
     )
     await callback.answer()
 
-# СВОДКА ЗА ДЕНЬ
 async def build_day_summary(target_date: str, db) -> str:
     period = get_active_period(db)
     if not period:
         return "❌ Нет активного периода."
     if target_date not in period["dates"]:
         return f"📅 {fmt_date(target_date)}\n\nЭта дата не входит в текущий период."
-
     is_off = target_date in period.get("off", [])
     lines = [f"📆 *Сводка за {fmt_date(target_date)}*"]
     if is_off:
         lines.append("_(выходной день)_")
     lines.append("")
-
     full, partial, missing = [], [], []
     for emp in period["employees"]:
         day = emp["days"].get(target_date, {})
@@ -712,7 +633,6 @@ async def build_day_summary(target_date: str, db) -> str:
             partial.append(f"🟡 *{emp['name']}*: пришёл в {s}, уход не отмечен")
         else:
             missing.append(f"❌ *{emp['name']}*")
-
     if full:
         lines.append("*Отработали полностью:*")
         lines += full
@@ -726,7 +646,6 @@ async def build_day_summary(target_date: str, db) -> str:
         lines += missing
     if not period["employees"]:
         lines.append("Нет сотрудников в периоде.")
-
     return "\n".join(lines)
 
 @dp.callback_query(F.data == "admin_day_yesterday")
@@ -745,20 +664,11 @@ async def cmd_day(message: Message):
         await message.answer("⛔ Нет доступа.")
         return
     parts = message.text.strip().split()
-    if len(parts) >= 2:
-        try:
-            datetime.strptime(parts[1], "%Y-%m-%d")
-            target = parts[1]
-        except:
-            await message.answer("❌ Формат: `/day 2025-05-19`", parse_mode="Markdown")
-            return
-    else:
-        target = yesterday_msk()
+    target = parts[1] if len(parts) >= 2 else yesterday_msk()
     db = load_db()
     text = await build_day_summary(target, db)
     await message.answer(text, parse_mode="Markdown")
 
-# СОЗДАТЬ ПЕРИОД ВРУЧНУЮ
 @dp.callback_query(F.data == "admin_new_period")
 async def admin_new_period_start(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id):
@@ -767,11 +677,8 @@ async def admin_new_period_start(callback: CallbackQuery, state: FSMContext):
     db = load_db()
     period = get_active_period(db)
     next_start, next_end = calc_next_period_dates(period["end"] if period else None)
-    next_name = period_name_auto(next_start, next_end)
     await callback.message.answer(
-        f"📅 *Создание периода вручную*\n\n"
-        f"Следующий автопериод был бы: *{next_name}* ({next_start} – {next_end})\n\n"
-        f"Название (или `-` для авто):",
+        f"📅 *Создание периода*\n\nСледующий автопериод: *{period_name_auto(next_start, next_end)}*\n\nНазвание (или `-` для авто):",
         parse_mode="Markdown"
     )
     await state.set_state(AdminState.new_period_name)
@@ -811,7 +718,7 @@ async def admin_period_end(message: Message, state: FSMContext):
     await state.update_data(period_end=message.text.strip())
     db = load_db()
     if not db["staff"]:
-        await message.answer("⚠️ Нет сотрудников. Добавь через 👑 Админ → Сотрудники.")
+        await message.answer("⚠️ Нет сотрудников.")
         await state.clear()
         return
     lines = "\n".join([f"  {i+1}. {s['name']}" for i, s in enumerate(db["staff"])])
@@ -832,10 +739,9 @@ async def admin_period_staff(message: Message, state: FSMContext):
             indices = [int(x.strip()) - 1 for x in text.split(",")]
             selected = [staff[i] for i in indices if 0 <= i < len(staff)]
         except:
-            await message.answer("❌ Введи номера через запятую, например `1,2,3` или `все`:")
+            await message.answer("❌ Введи номера через запятую или `все`:")
             return
-    period = create_period_from_dates(db, data["period_start"], data["period_end"],
-                                      selected, data.get("period_name"))
+    period = create_period_from_dates(db, data["period_start"], data["period_end"], selected, data.get("period_name"))
     save_db(db)
     names = ", ".join([s["name"] for s in selected])
     await message.answer(
@@ -844,7 +750,6 @@ async def admin_period_staff(message: Message, state: FSMContext):
     )
     await state.clear()
 
-# ДОБАВИТЬ СОТРУДНИКА
 @dp.callback_query(F.data == "admin_add_staff")
 async def admin_add_staff_start(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id):
@@ -889,82 +794,62 @@ async def admin_back(callback: CallbackQuery):
     )
     await callback.answer()
 
-# ─────────────────────────────────────────────
-# АВТО-РАССЫЛКА В 7:00 МСК + АВТОСОЗДАНИЕ ПЕРИОДА
-# ─────────────────────────────────────────────
 async def auto_create_next_period(db):
-    """
-    Создаёт следующий период автоматически, если текущий закончился.
-    Берёт тех же сотрудников что и в предыдущем периоде.
-    """
     period = get_active_period(db)
     if not period:
         return None
-
     today = today_msk()
-    # Создаём новый период на следующий день после окончания текущего
     if today > period["end"]:
         next_start, next_end = calc_next_period_dates(period["end"])
-        # Проверяем что такого периода ещё нет
         exists = any(p["start"] == next_start for p in db["periods"])
         if not exists:
             staff_names = [e["name"] for e in period["employees"]]
-            staff_list = [s for s in db["staff"] if s["name"] in staff_names]
-            if not staff_list:
-                staff_list = db["staff"]  # если не нашли — берём всех
+            staff_list = [s for s in db["staff"] if s["name"] in staff_names] or db["staff"]
             new_period = create_period_from_dates(db, next_start, next_end, staff_list)
             save_db(db)
             return new_period
     return None
 
 async def daily_jobs():
-    """Каждый день в 7:00 МСК: авторассылка + автосоздание периода."""
     while True:
         now = now_msk()
         next_run = now.replace(hour=7, minute=0, second=0, microsecond=0)
         if now >= next_run:
             next_run += timedelta(days=1)
-        wait_seconds = (next_run - now).total_seconds()
-        logger.info(f"Следующая авторассылка через {wait_seconds/3600:.1f} ч ({next_run.strftime('%Y-%m-%d %H:%M')} МСК)")
-        await asyncio.sleep(wait_seconds)
-
+        await asyncio.sleep((next_run - now).total_seconds())
         if not ADMIN_ID:
             continue
         try:
             db = load_db()
-
-            # 1. Сводка за вчера
             text = await build_day_summary(yesterday_msk(), db)
             await bot.send_message(ADMIN_ID, f"🌅 *Автоотчёт — итоги вчерашнего дня*\n\n{text}", parse_mode="Markdown")
-
-            # 2. Автосоздание нового периода если старый закончился
             new_period = await auto_create_next_period(db)
             if new_period:
                 names = ", ".join([e["name"] for e in new_period["employees"]])
                 await bot.send_message(
                     ADMIN_ID,
-                    f"📅 *Автоматически создан новый период!*\n\n"
-                    f"*{new_period['name']}*\n"
-                    f"🗓 {new_period['start']} — {new_period['end']}\n"
-                    f"👥 {names}\n\n"
-                    f"_Сотрудники перенесены из предыдущего периода._",
+                    f"📅 *Автоматически создан новый период!*\n\n*{new_period['name']}*\n"
+                    f"🗓 {new_period['start']} — {new_period['end']}\n👥 {names}",
                     parse_mode="Markdown"
                 )
         except Exception as e:
             logger.error(f"Ошибка в daily_jobs: {e}")
 
-# ─────────────────────────────────────────────
-# ЗАПУСК
-# ─────────────────────────────────────────────
+async def health(request):
+    return web.Response(text="OK")
+
 async def main():
-    if not BOT_TOKEN:
-        logger.error("BOT_TOKEN не задан!")
-        return
-    if not ADMIN_ID:
-        logger.warning("ADMIN_ID не задан!")
-    await start_web()
+    logger.info(f"Запуск бота. TOKEN: {BOT_TOKEN[:20]}... ADMIN: {ADMIN_ID}")
+    app = web.Application()
+    app.router.add_get("/", health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.getenv("PORT", "8080"))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logger.info(f"Веб-сервер запущен на порту {port}")
     asyncio.create_task(daily_jobs())
-    logger.info("Бот запущен (авторассылка и автопериоды в 7:00 МСК)...")
+    logger.info("Бот запущен!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
