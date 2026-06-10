@@ -18,7 +18,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8966689258:AAEeaN0fuv7IsCI9KKn2znZULNx3WmvE_JQ")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 DATA_FILE = "data.json"
 TZ = ZoneInfo("Europe/Moscow")
